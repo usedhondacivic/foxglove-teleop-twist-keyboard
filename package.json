@@ -4,7 +4,7 @@
   "description": "An implementation of the ROS teleop-twist-keyboard package for foxglove",
   "publisher": "usedhondacivic",
   "homepage": "https://github.com/usedhondacivic/foxglove-teleop-twist-keyboard",
-  "version": "0.0.0",
+  "version": "v0.0.0",
   "license": "UNLICENSED",
   "main": "./dist/extension.js",
   "keywords": [],
