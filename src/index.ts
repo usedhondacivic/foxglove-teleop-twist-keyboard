@@ -1,7 +1,7 @@
 import { ExtensionContext } from "@foxglove/extension";
 
-import { initJoyPanel } from "./JoyPanel";
+import { initTeleopTwistPanel } from "./TeleopTwistPanel";
 
 export function activate(extensionContext: ExtensionContext): void {
-  extensionContext.registerPanel({ name: "Joy", initPanel: initJoyPanel });
+  extensionContext.registerPanel({ name: "Teleop Twist", initPanel: initTeleopTwistPanel });
 }

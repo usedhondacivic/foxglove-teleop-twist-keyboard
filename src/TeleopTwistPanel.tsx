@@ -1,3 +1,7 @@
+/*
+ * Based on: https://github.com/yulong88888/foxglove-nipple/blob/main/src/VirtualJoystickPanel.tsx
+ * */
+
 import {
   Topic,
   PanelExtensionContext,
@@ -7,9 +11,13 @@ import {
 } from "@foxglove/extension";
 import { set } from "lodash";
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
+import { Vector3, geometry_msgs__Twist, geometry_msgs__TwistStamped } from "./types";
 import ReactDOM from "react-dom";
 
 const keyOrder = ["u", "i", "o", "j", "k", "l", "m", ",", "."];
+const directionOrder = ["🢄", "🢁", "🢅", "🢀", "○", "🢂", "🢇", "🢃", "🢆"];
+const linearWeights = [0.7, 1.0, 0.7, 0.0, 0.0, 0.0, -0.7, -1.0, -0.7];
+const angularWeights = [0.7, 0.0, -0.7, 1.0, 0.0, -1.0, 0.7, 0.0, -0.7];
 
 // ros1
 const TWIST_SCHEMA_ROS_1 = "geometry_msgs/Twist";
@@ -55,7 +63,7 @@ function buildSettingsTree(config: Config, topics: readonly Topic[]): SettingsTr
 
   return { general };
 }
-function JoyPanel({ context }: { context: PanelExtensionContext }): JSX.Element {
+function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.Element {
   /* Store the current topic */
   const [topics, setTopics] = useState<ReadonlyArray<Topic>>([]);
   const [currentTopic, setCurrentTopic] = useState<Topic | void>(() => {
@@ -76,9 +84,10 @@ function JoyPanel({ context }: { context: PanelExtensionContext }): JSX.Element 
 
   /* Keyboard input state */
   const [keys, setKeys] = useState([false, false, false, false, false, false, false, false, false]);
+  const keysRef = useRef<boolean[] | void>();
+  keysRef.current = keys;
 
-  // const nextCmdPt = React.useRef<[number, number] | null>(null);
-  // const nextCmdIntervalId = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const nextCmdIntervalId = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /* Side panel settings configuration */
   const [config, setConfig] = useState<Config>(() => {
@@ -110,13 +119,6 @@ function JoyPanel({ context }: { context: PanelExtensionContext }): JSX.Element 
     if (currentTopic) {
       advertiseTopic(currentTopic);
     }
-
-    // Clean up
-    return () => {
-      // if (nextCmdIntervalId.current) {
-      //   clearInterval(nextCmdIntervalId.current);
-      // }
-    };
   });
 
   /* Handle changes made in the sidebar*/
@@ -172,10 +174,6 @@ function JoyPanel({ context }: { context: PanelExtensionContext }): JSX.Element 
   }, [context]);
 
   useEffect(() => {
-    renderDone?.();
-  }, [renderDone]);
-
-  useEffect(() => {
     const tree = buildSettingsTree(config, topics);
     context.updatePanelSettingsEditor({
       actionHandler: settingsActionHandler,
@@ -183,6 +181,77 @@ function JoyPanel({ context }: { context: PanelExtensionContext }): JSX.Element 
     });
     saveState(config);
   }, [config, context, saveState, settingsActionHandler, topics]);
+
+  const cmdMove = useCallback(() => {
+    let numKeysPressed = 1.0;
+    if (keysRef && keysRef.current) {
+      numKeysPressed = keysRef.current.filter(Boolean).length;
+      if (numKeysPressed === 0) {
+        numKeysPressed = 1;
+      }
+    }
+    const lx =
+      linearWeights
+        .filter((_, i) => {
+          if (keysRef && keysRef.current) {
+            return keysRef.current[i];
+          }
+          return false;
+        })
+        .reduce((ps, a) => ps + a, 0) / numKeysPressed;
+    const az =
+      angularWeights
+        .filter((_, i) => {
+          if (keysRef && keysRef.current) {
+            return keysRef.current[i];
+          }
+          return false;
+        })
+        .reduce((ps, a) => ps + a, 0) / numKeysPressed;
+
+    const linearSpeed = lx * config.maxLinearSpeed;
+    const angularSpeed = az * config.maxAngularSpeed;
+
+    const linearVec: Vector3 = {
+      x: linearSpeed,
+      y: 0,
+      z: 0,
+    };
+
+    const angularVec: Vector3 = {
+      x: 0,
+      y: 0,
+      z: angularSpeed,
+    };
+
+    let message: geometry_msgs__Twist | geometry_msgs__TwistStamped;
+    const schemaName = currentTopicRef.current?.schemaName ?? "";
+    if ([TWIST_SCHEMA_STAMPED_ROS_1, TWIST_SCHEMA_STAMPED_ROS_2].includes(schemaName)) {
+      message = {
+        header: {
+          stamp: { sec: 0, nsec: 0 },
+          // eslint-disable-next-line no-warning-comments
+          // TODO: Make frame_id configurable
+          frame_id: "",
+        },
+        twist: {
+          linear: linearVec,
+          angular: angularVec,
+        },
+      };
+    } else if ([TWIST_SCHEMA_ROS_1, TWIST_SCHEMA_ROS_2].includes(schemaName)) {
+      message = {
+        linear: linearVec,
+        angular: angularVec,
+      };
+    } else {
+      console.error("Unknown message schema");
+      return;
+    }
+    if (currentTopicRef.current?.name) {
+      context.publish?.(currentTopicRef.current.name, message);
+    }
+  }, [config, context]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -209,32 +278,71 @@ function JoyPanel({ context }: { context: PanelExtensionContext }): JSX.Element 
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("keyup", handleKeyUp);
 
+    nextCmdIntervalId.current = setInterval(cmdMove, 1000 / config.publishRate);
+
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("keyup", handleKeyUp);
+      if (nextCmdIntervalId.current) {
+        clearInterval(nextCmdIntervalId.current);
+      }
     };
   });
 
+  useEffect(() => {
+    renderDone?.();
+  }, [renderDone]);
+
+  /* Create elements to display the keys*/
   const keyElements = keys.map((pressed, i) => {
     return (
       <div
         key={keyOrder[i]}
-        style={{ width: "50px", height: "50px", background: pressed ? "lightblue" : "none" }}
+        style={{
+          width: "50px",
+          height: "50px",
+          textAlign: "center",
+          background: pressed ? "rgba(111, 0, 255, .2)" : "none",
+          border: "1px solid rgba(255,255,255,.5)",
+          position: "relative",
+        }}
       >
-        {keyOrder[i]}: {pressed ? "true" : "false"}
+        <p
+          style={{
+            position: "absolute",
+            top: "25%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+          }}
+        >
+          <b>{directionOrder[i]}</b>
+          <br />
+          {keyOrder[i]}
+        </p>
       </div>
     );
   });
 
   return (
-    <div style={{ padding: "1rem", display: "grid", gridTemplateColumns: "50px 50px 50px" }}>
-      {keyElements}
+    <div style={{ padding: "1rem", width: "100%", height: "100%" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "50px 50px 50px",
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+        }}
+      >
+        {keyElements}
+      </div>
     </div>
   );
 }
 
-export function initJoyPanel(context: PanelExtensionContext): () => void {
-  ReactDOM.render(<JoyPanel context={context} />, context.panelElement);
+export function initTeleopTwistPanel(context: PanelExtensionContext): () => void {
+  ReactDOM.render(<TeleopTwistPanel context={context} />, context.panelElement);
 
   // Return a function to run when the panel is removed
   return () => {
