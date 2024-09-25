@@ -19,11 +19,9 @@ const directionOrder = ["🢄", "🢁", "🢅", "🢀", "○", "🢂", "🢇", "
 const linearWeights = [0.7, 1.0, 0.7, 0.0, 0.0, 0.0, -0.7, -1.0, -0.7];
 const angularWeights = [0.7, 0.0, -0.7, 1.0, 0.0, -1.0, 0.7, 0.0, -0.7];
 
-// ros1
 const TWIST_SCHEMA_ROS_1 = "geometry_msgs/Twist";
 const TWIST_SCHEMA_STAMPED_ROS_1 = "geometry_msgs/TwistStamped";
 
-// ros2
 const TWIST_SCHEMA_STAMPED_ROS_2 = "geometry_msgs/msg/TwistStamped";
 const TWIST_SCHEMA_ROS_2 = "geometry_msgs/msg/Twist";
 
@@ -84,7 +82,7 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
 
   /* Keyboard input state */
   const [keys, setKeys] = useState([false, false, false, false, false, false, false, false, false]);
-  const keysRef = useRef<boolean[] | void>();
+  const keysRef = useRef<boolean[]>();
   keysRef.current = keys;
 
   const nextCmdIntervalId = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -144,17 +142,22 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
 
         const newTopic = topics.find((topic) => topic.name === newConfig.topic);
         setCurrentTopic(newTopic);
-        if (newTopic && newTopic.name !== currentTopicRef.current?.name) {
+        if (
+          newTopic &&
+          newTopic.name !== currentTopicRef.current?.name &&
+          newTopic.schemaName != ""
+        ) {
           newConfig.messageSchema = newTopic.schemaName;
-          newConfig.messageSchema = newTopic.schemaName;
+        } else {
+          newConfig.messageSchema = TWIST_SCHEMA_ROS_1;
         }
-
         return newConfig;
       });
     },
     [topics],
   );
 
+  /* Watch for new topics */
   useLayoutEffect(() => {
     context.onRender = (renderState, done) => {
       setRenderDone(() => done);
@@ -173,6 +176,7 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
     context.watch("topics");
   }, [context]);
 
+  /* Create the settings panel */
   useEffect(() => {
     const tree = buildSettingsTree(config, topics);
     context.updatePanelSettingsEditor({
@@ -182,6 +186,7 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
     saveState(config);
   }, [config, context, saveState, settingsActionHandler, topics]);
 
+  /* cmd_vel publishing callback*/
   const cmdMove = useCallback(() => {
     let numKeysPressed = 1.0;
     if (keysRef && keysRef.current) {
@@ -253,26 +258,31 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
     }
   }, [config, context]);
 
+  /* Event handlers */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const newKeys = keys.map((c, i) => {
+      const newKeys = keysRef.current?.map((c, i) => {
         if (i === keyOrder.indexOf(e.key)) {
           return true;
         } else {
           return c;
         }
       });
-      setKeys(newKeys);
+      if (newKeys) {
+        setKeys(newKeys);
+      }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
-      const newKeys = keys.map((c, i) => {
+      const newKeys = keysRef.current?.map((c, i) => {
         if (i === keyOrder.indexOf(e.key)) {
           return false;
         } else {
           return c;
         }
       });
-      setKeys(newKeys);
+      if (newKeys) {
+        setKeys(newKeys);
+      }
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -287,8 +297,9 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
         clearInterval(nextCmdIntervalId.current);
       }
     };
-  });
+  }, []);
 
+  /* Tell foxglove when the panel is done rendering */
   useEffect(() => {
     renderDone?.();
   }, [renderDone]);
