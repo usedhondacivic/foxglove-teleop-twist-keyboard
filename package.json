@@ -5,7 +5,7 @@
   "publisher": "usedhondacivic",
   "homepage": "https://github.com/usedhondacivic/foxglove-teleop-twist-keyboard",
   "version": "v0.0.2",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "main": "./dist/extension.js",
   "keywords": [],
   "scripts": {
