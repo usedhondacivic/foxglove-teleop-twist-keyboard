@@ -82,7 +82,7 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
 
   /* Keyboard input state */
   const [keys, setKeys] = useState([false, false, false, false, false, false, false, false, false]);
-  const keysRef = useRef<boolean[]>();
+  const keysRef = useRef<boolean[] | void>();
   keysRef.current = keys;
 
   const nextCmdIntervalId = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -99,6 +99,8 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
       maxAngularSpeed,
     };
   });
+  const configRef = useRef<Config | void>();
+  configRef.current = config;
 
   const { saveState } = context;
 
@@ -140,7 +142,14 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
           newConfig.maxAngularSpeed = 0;
         }
 
-        const newTopic = topics.find((topic) => topic.name === newConfig.topic);
+        let newTopic = topics.find((topic) => topic.name === newConfig.topic);
+        if (!newTopic) {
+          newTopic = {
+            name: newConfig.topic,
+            schemaName: TWIST_SCHEMA_ROS_1,
+            datatype: TWIST_SCHEMA_ROS_1,
+          };
+        }
         setCurrentTopic(newTopic);
         if (
           newTopic &&
@@ -214,8 +223,14 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
         })
         .reduce((ps, a) => ps + a, 0) / numKeysPressed;
 
-    const linearSpeed = lx * config.maxLinearSpeed;
-    const angularSpeed = az * config.maxAngularSpeed;
+    let linearSpeed = lx;
+    if (configRef && configRef.current) {
+      linearSpeed *= configRef.current.maxLinearSpeed;
+    }
+    let angularSpeed = az;
+    if (configRef && configRef.current) {
+      angularSpeed *= configRef.current.maxAngularSpeed;
+    }
 
     const linearVec: Vector3 = {
       x: linearSpeed,
@@ -251,6 +266,7 @@ function TeleopTwistPanel({ context }: { context: PanelExtensionContext }): JSX.
       };
     } else {
       console.error("Unknown message schema");
+      console.error(schemaName);
       return;
     }
     if (currentTopicRef.current?.name) {
